@@ -2,8 +2,6 @@ import pygame
 from .marble import Marble
 from .wall import Wall
 
-# Game Engine
-
 WHITE = (255, 255, 255)
 DARK = (40, 40, 50)
 WALL_COLOR = (90, 90, 110)
@@ -27,20 +25,18 @@ class GameEngine:
 
         self.font = pygame.font.SysFont("Arial", 26)
         self.game_over = False
-        self.result = None  # "solved" or "timeout"
+        self.result = None
         self.finish_time_ms = None
 
     def _build_maze(self):
         walls = []
-        t = 16  # wall thickness
+        t = 16
 
-        # outer boundary
         walls.append(Wall(0, 0, self.width, t))
         walls.append(Wall(0, self.height - t, self.width, t))
         walls.append(Wall(0, 0, t, self.height))
         walls.append(Wall(self.width - t, 0, t, self.height))
 
-        # a few internal walls forming a simple winding path
         walls.append(Wall(0, 140, self.width - 140, t))
         walls.append(Wall(140, 260, self.width - 140, t))
         walls.append(Wall(0, 380, self.width - 140, t))
@@ -48,8 +44,6 @@ class GameEngine:
         return walls
 
     def handle_event(self, event):
-        # This game is driven entirely by the continuous mouse
-        # position, handled in handle_input each frame.
         pass
 
     def handle_input(self):
@@ -97,34 +91,64 @@ class GameEngine:
             self.finish_time_ms = elapsed
 
     def _resolve_wall_collisions(self):
+        restitution = 0.3
+
         for wall in self.walls:
-            marble_rect = self.marble.rect()
             wall_rect = wall.rect()
 
-            # NOTE: this checks a simple bounding-box overlap
-            # (colliderect) between the marble's square bounding box
-            # and the wall, instead of a true circle-vs-rectangle
-            # distance test. Near a wall's corner, the marble's
-            # bounding square can overlap the wall rect well before
-            # the actual round marble visually touches it, causing an
-            # early "phantom" bounce off empty space right next to
-            # corners. See Task 1 in the README.
-            if marble_rect.colliderect(wall_rect):
-                overlap_x = min(marble_rect.right, wall_rect.right) - max(marble_rect.left, wall_rect.left)
-                overlap_y = min(marble_rect.bottom, wall_rect.bottom) - max(marble_rect.top, wall_rect.top)
+            closest_x = max(wall_rect.left, min(self.marble.x, wall_rect.right))
+            closest_y = max(wall_rect.top, min(self.marble.y, wall_rect.bottom))
 
-                if overlap_x < overlap_y:
-                    if self.marble.x < wall_rect.centerx:
-                        self.marble.x -= overlap_x
-                    else:
-                        self.marble.x += overlap_x
-                    self.marble.vx *= -0.3
+            dx = self.marble.x - closest_x
+            dy = self.marble.y - closest_y
+            distance_squared = dx * dx + dy * dy
+            radius = self.marble.radius
+
+            if distance_squared > radius * radius:
+                continue
+
+            if distance_squared > 0:
+                distance = distance_squared ** 0.5
+                normal_x = dx / distance
+                normal_y = dy / distance
+                penetration = radius - distance
+            else:
+                left_distance = abs(self.marble.x - wall_rect.left)
+                right_distance = abs(wall_rect.right - self.marble.x)
+                top_distance = abs(self.marble.y - wall_rect.top)
+                bottom_distance = abs(wall_rect.bottom - self.marble.y)
+
+                minimum_distance = min(
+                    left_distance,
+                    right_distance,
+                    top_distance,
+                    bottom_distance
+                )
+
+                if minimum_distance == left_distance:
+                    normal_x, normal_y = -1, 0
+                    penetration = radius + left_distance
+                elif minimum_distance == right_distance:
+                    normal_x, normal_y = 1, 0
+                    penetration = radius + right_distance
+                elif minimum_distance == top_distance:
+                    normal_x, normal_y = 0, -1
+                    penetration = radius + top_distance
                 else:
-                    if self.marble.y < wall_rect.centery:
-                        self.marble.y -= overlap_y
-                    else:
-                        self.marble.y += overlap_y
-                    self.marble.vy *= -0.3
+                    normal_x, normal_y = 0, 1
+                    penetration = radius + bottom_distance
+
+            self.marble.x += normal_x * penetration
+            self.marble.y += normal_y * penetration
+
+            velocity_into_wall = (
+                self.marble.vx * normal_x +
+                self.marble.vy * normal_y
+            )
+
+            if velocity_into_wall < 0:
+                self.marble.vx -= (1 + restitution) * velocity_into_wall * normal_x
+                self.marble.vy -= (1 + restitution) * velocity_into_wall * normal_y
 
     def render(self, screen):
         screen.fill(DARK)
@@ -132,18 +156,37 @@ class GameEngine:
         for wall in self.walls:
             pygame.draw.rect(screen, WALL_COLOR, wall.rect())
 
-        pygame.draw.circle(screen, GOAL_COLOR, (self.goal_x, self.goal_y), self.goal_radius)
-        pygame.draw.circle(screen, WHITE, (int(self.marble.x), int(self.marble.y)), self.marble.radius)
+        pygame.draw.circle(
+            screen,
+            GOAL_COLOR,
+            (self.goal_x, self.goal_y),
+            self.goal_radius
+        )
+
+        pygame.draw.circle(
+            screen,
+            WHITE,
+            (int(self.marble.x), int(self.marble.y)),
+            self.marble.radius
+        )
 
         elapsed = pygame.time.get_ticks() - self.start_ticks
         seconds_left = max(0, (self.time_limit_ms - elapsed) // 1000)
-        timer_text = self.font.render(f"Time: {seconds_left}s", True, WHITE)
+
+        timer_text = self.font.render(
+            f"Time: {seconds_left}s",
+            True,
+            WHITE
+        )
+
         screen.blit(timer_text, (10, 10))
 
         if self.game_over and not getattr(self, "_game_over_logged", False):
-            # NOTE: no proper end screen yet - see Task 2 in the README.
             if self.result == "solved":
-                print(f"Solved! Finished in {self.finish_time_ms / 1000:.1f}s")
+                print(
+                    f"Solved! Finished in {self.finish_time_ms / 1000:.1f}s"
+                )
             else:
                 print("Time's up! Maze not solved.")
+
             self._game_over_logged = True
