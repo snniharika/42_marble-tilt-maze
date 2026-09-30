@@ -1,4 +1,9 @@
 import pygame
+import io
+import math
+import struct
+import wave
+
 from .marble import Marble
 from .wall import Wall
 
@@ -6,6 +11,7 @@ WHITE = (255, 255, 255)
 DARK = (40, 40, 50)
 WALL_COLOR = (90, 90, 110)
 GOAL_COLOR = (60, 200, 120)
+
 
 class GameEngine:
     def __init__(self, width, height):
@@ -52,6 +58,61 @@ class GameEngine:
         self.result = None
         self.finish_time_ms = None
         self.exit_requested = False
+
+        self._initialize_sounds()
+
+    def _initialize_sounds(self):
+        self.bounce_sound = self._create_tone(
+            frequency=220,
+            duration=0.08,
+            volume=0.35
+        )
+
+        self.goal_sound = self._create_tone(
+            frequency=880,
+            duration=0.25,
+            volume=0.45
+        )
+
+        self.timeout_sound = self._create_tone(
+            frequency=180,
+            duration=0.5,
+            volume=0.45
+        )
+
+    def _create_tone(self, frequency, duration, volume):
+        sample_rate = 44100
+        samples = int(sample_rate * duration)
+
+        audio_data = bytearray()
+
+        for i in range(samples):
+            time = i / sample_rate
+
+            envelope = 1.0 - (i / samples)
+
+            value = int(
+                32767
+                * volume
+                * envelope
+                * math.sin(2 * math.pi * frequency * time)
+            )
+
+            audio_data.extend(
+                struct.pack("<h", value)
+            )
+
+        buffer = io.BytesIO()
+
+        with wave.open(buffer, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(audio_data)
+
+        buffer.seek(0)
+
+        return pygame.mixer.Sound(file=buffer)
 
     def _build_maze(self):
         walls = []
@@ -131,6 +192,7 @@ class GameEngine:
         if elapsed >= self.time_limit_ms:
             self.game_over = True
             self.result = "timeout"
+            self.timeout_sound.play()
             return
 
         self.marble.vx *= (1 - self.friction)
@@ -155,6 +217,7 @@ class GameEngine:
             self.game_over = True
             self.result = "solved"
             self.finish_time_ms = elapsed
+            self.goal_sound.play()
 
     def _resolve_wall_collisions(self):
         restitution = 0.3
@@ -250,6 +313,8 @@ class GameEngine:
                     * normal_y
                 )
 
+                self.bounce_sound.play()
+
     def render(self, screen):
         screen.fill(DARK)
 
@@ -279,6 +344,7 @@ class GameEngine:
         )
 
         elapsed = pygame.time.get_ticks() - self.start_ticks
+
         seconds_left = max(
             0,
             (self.time_limit_ms - elapsed) // 1000
