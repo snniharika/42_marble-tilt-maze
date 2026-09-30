@@ -13,6 +13,26 @@ class GameEngine:
         self.height = height
 
         self.marble = Marble(50, 50)
+
+        self.difficulties = {
+            "Easy": {
+                "tilt_strength": 0.45,
+                "friction": 0.04,
+                "time_limit_ms": 60000
+            },
+            "Medium": {
+                "tilt_strength": 0.60,
+                "friction": 0.02,
+                "time_limit_ms": 45000
+            },
+            "Hard": {
+                "tilt_strength": 0.80,
+                "friction": 0.01,
+                "time_limit_ms": 30000
+            }
+        }
+
+        self.current_difficulty = "Medium"
         self.tilt_strength = 0.6
         self.friction = 0.02
         self.max_speed = 9
@@ -26,6 +46,8 @@ class GameEngine:
         self.font = pygame.font.SysFont("Arial", 26)
         self.title_font = pygame.font.SysFont("Arial", 42)
         self.result_font = pygame.font.SysFont("Arial", 30)
+        self.menu_font = pygame.font.SysFont("Arial", 24)
+
         self.game_over = False
         self.result = None
         self.finish_time_ms = None
@@ -47,10 +69,43 @@ class GameEngine:
         return walls
 
     def handle_event(self, event):
-        if self.game_over:
-            if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_ESCAPE):
-                    self.exit_requested = True
+        if not self.game_over:
+            return
+
+        if event.type != pygame.KEYDOWN:
+            return
+
+        if event.key == pygame.K_1:
+            self._restart_game("Easy")
+
+        elif event.key == pygame.K_2:
+            self._restart_game("Medium")
+
+        elif event.key == pygame.K_3:
+            self._restart_game("Hard")
+
+        elif event.key in (pygame.K_ESCAPE, pygame.K_q):
+            self.exit_requested = True
+
+    def _restart_game(self, difficulty):
+        settings = self.difficulties[difficulty]
+
+        self.current_difficulty = difficulty
+        self.tilt_strength = settings["tilt_strength"]
+        self.friction = settings["friction"]
+        self.time_limit_ms = settings["time_limit_ms"]
+
+        self.marble.x = 50
+        self.marble.y = 50
+        self.marble.vx = 0
+        self.marble.vy = 0
+
+        self.start_ticks = pygame.time.get_ticks()
+
+        self.game_over = False
+        self.result = None
+        self.finish_time_ms = None
+        self.exit_requested = False
 
     def handle_input(self):
         if self.game_over:
@@ -60,8 +115,10 @@ class GameEngine:
         dx = mouse_x - self.width // 2
         dy = mouse_y - self.height // 2
         dist = max(1, (dx ** 2 + dy ** 2) ** 0.5)
+
         ax = (dx / dist) * self.tilt_strength
         ay = (dy / dist) * self.tilt_strength
+
         self.marble.vx += ax
         self.marble.vy += ay
 
@@ -105,11 +162,19 @@ class GameEngine:
         for wall in self.walls:
             wall_rect = wall.rect()
 
-            closest_x = max(wall_rect.left, min(self.marble.x, wall_rect.right))
-            closest_y = max(wall_rect.top, min(self.marble.y, wall_rect.bottom))
+            closest_x = max(
+                wall_rect.left,
+                min(self.marble.x, wall_rect.right)
+            )
+
+            closest_y = max(
+                wall_rect.top,
+                min(self.marble.y, wall_rect.bottom)
+            )
 
             dx = self.marble.x - closest_x
             dy = self.marble.y - closest_y
+
             distance_squared = dx * dx + dy * dy
             radius = self.marble.radius
 
@@ -118,14 +183,28 @@ class GameEngine:
 
             if distance_squared > 0:
                 distance = distance_squared ** 0.5
+
                 normal_x = dx / distance
                 normal_y = dy / distance
+
                 penetration = radius - distance
+
             else:
-                left_distance = abs(self.marble.x - wall_rect.left)
-                right_distance = abs(wall_rect.right - self.marble.x)
-                top_distance = abs(self.marble.y - wall_rect.top)
-                bottom_distance = abs(wall_rect.bottom - self.marble.y)
+                left_distance = abs(
+                    self.marble.x - wall_rect.left
+                )
+
+                right_distance = abs(
+                    wall_rect.right - self.marble.x
+                )
+
+                top_distance = abs(
+                    self.marble.y - wall_rect.top
+                )
+
+                bottom_distance = abs(
+                    wall_rect.bottom - self.marble.y
+                )
 
                 minimum_distance = min(
                     left_distance,
@@ -137,12 +216,15 @@ class GameEngine:
                 if minimum_distance == left_distance:
                     normal_x, normal_y = -1, 0
                     penetration = radius + left_distance
+
                 elif minimum_distance == right_distance:
                     normal_x, normal_y = 1, 0
                     penetration = radius + right_distance
+
                 elif minimum_distance == top_distance:
                     normal_x, normal_y = 0, -1
                     penetration = radius + top_distance
+
                 else:
                     normal_x, normal_y = 0, 1
                     penetration = radius + bottom_distance
@@ -156,8 +238,17 @@ class GameEngine:
             )
 
             if velocity_into_wall < 0:
-                self.marble.vx -= (1 + restitution) * velocity_into_wall * normal_x
-                self.marble.vy -= (1 + restitution) * velocity_into_wall * normal_y
+                self.marble.vx -= (
+                    (1 + restitution)
+                    * velocity_into_wall
+                    * normal_x
+                )
+
+                self.marble.vy -= (
+                    (1 + restitution)
+                    * velocity_into_wall
+                    * normal_y
+                )
 
     def render(self, screen):
         screen.fill(DARK)
@@ -167,7 +258,11 @@ class GameEngine:
             return
 
         for wall in self.walls:
-            pygame.draw.rect(screen, WALL_COLOR, wall.rect())
+            pygame.draw.rect(
+                screen,
+                WALL_COLOR,
+                wall.rect()
+            )
 
         pygame.draw.circle(
             screen,
@@ -184,7 +279,10 @@ class GameEngine:
         )
 
         elapsed = pygame.time.get_ticks() - self.start_ticks
-        seconds_left = max(0, (self.time_limit_ms - elapsed) // 1000)
+        seconds_left = max(
+            0,
+            (self.time_limit_ms - elapsed) // 1000
+        )
 
         timer_text = self.font.render(
             f"Time: {seconds_left}s",
@@ -192,7 +290,14 @@ class GameEngine:
             WHITE
         )
 
+        difficulty_text = self.menu_font.render(
+            f"Difficulty: {self.current_difficulty}",
+            True,
+            WHITE
+        )
+
         screen.blit(timer_text, (10, 10))
+        screen.blit(difficulty_text, (10, 45))
 
     def _render_game_over(self, screen):
         if self.result == "solved":
@@ -209,6 +314,7 @@ class GameEngine:
                 True,
                 WHITE
             )
+
         else:
             title = self.title_font.render(
                 "Time's Up!",
@@ -222,24 +328,47 @@ class GameEngine:
                 WHITE
             )
 
-        instruction = self.font.render(
-            "Press Enter, Space, or Escape to exit",
+        replay_text = self.menu_font.render(
+            "1 - Easy    2 - Medium    3 - Hard",
+            True,
+            WHITE
+        )
+
+        exit_text = self.menu_font.render(
+            "Press Escape or Q to exit",
             True,
             WHITE
         )
 
         title_rect = title.get_rect(
-            center=(self.width // 2, self.height // 2 - 70)
+            center=(
+                self.width // 2,
+                self.height // 2 - 100
+            )
         )
 
         result_rect = result_text.get_rect(
-            center=(self.width // 2, self.height // 2)
+            center=(
+                self.width // 2,
+                self.height // 2 - 30
+            )
         )
 
-        instruction_rect = instruction.get_rect(
-            center=(self.width // 2, self.height // 2 + 70)
+        replay_rect = replay_text.get_rect(
+            center=(
+                self.width // 2,
+                self.height // 2 + 40
+            )
+        )
+
+        exit_rect = exit_text.get_rect(
+            center=(
+                self.width // 2,
+                self.height // 2 + 90
+            )
         )
 
         screen.blit(title, title_rect)
         screen.blit(result_text, result_rect)
-        screen.blit(instruction, instruction_rect)
+        screen.blit(replay_text, replay_rect)
+        screen.blit(exit_text, exit_rect)
