@@ -24,9 +24,12 @@ class GameEngine:
         self.start_ticks = pygame.time.get_ticks()
 
         self.font = pygame.font.SysFont("Arial", 26)
+        self.title_font = pygame.font.SysFont("Arial", 42)
+        self.result_font = pygame.font.SysFont("Arial", 30)
         self.game_over = False
         self.result = None
         self.finish_time_ms = None
+        self.exit_requested = False
 
     def _build_maze(self):
         walls = []
@@ -44,7 +47,10 @@ class GameEngine:
         return walls
 
     def handle_event(self, event):
-        pass
+        if self.game_over:
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_ESCAPE):
+                    self.exit_requested = True
 
     def handle_input(self):
         if self.game_over:
@@ -64,6 +70,7 @@ class GameEngine:
             return
 
         elapsed = pygame.time.get_ticks() - self.start_ticks
+
         if elapsed >= self.time_limit_ms:
             self.game_over = True
             self.result = "timeout"
@@ -73,6 +80,7 @@ class GameEngine:
         self.marble.vy *= (1 - self.friction)
 
         speed = (self.marble.vx ** 2 + self.marble.vy ** 2) ** 0.5
+
         if speed > self.max_speed:
             scale = self.max_speed / speed
             self.marble.vx *= scale
@@ -85,6 +93,7 @@ class GameEngine:
 
         gx = self.goal_x - self.marble.x
         gy = self.goal_y - self.marble.y
+
         if (gx ** 2 + gy ** 2) ** 0.5 <= self.goal_radius:
             self.game_over = True
             self.result = "solved"
@@ -153,6 +162,10 @@ class GameEngine:
     def render(self, screen):
         screen.fill(DARK)
 
+        if self.game_over:
+            self._render_game_over(screen)
+            return
+
         for wall in self.walls:
             pygame.draw.rect(screen, WALL_COLOR, wall.rect())
 
@@ -181,12 +194,52 @@ class GameEngine:
 
         screen.blit(timer_text, (10, 10))
 
-        if self.game_over and not getattr(self, "_game_over_logged", False):
-            if self.result == "solved":
-                print(
-                    f"Solved! Finished in {self.finish_time_ms / 1000:.1f}s"
-                )
-            else:
-                print("Time's up! Maze not solved.")
+    def _render_game_over(self, screen):
+        if self.result == "solved":
+            title = self.title_font.render(
+                "Maze Solved!",
+                True,
+                GOAL_COLOR
+            )
 
-            self._game_over_logged = True
+            finish_seconds = self.finish_time_ms / 1000
+
+            result_text = self.result_font.render(
+                f"Finished in {finish_seconds:.1f} seconds",
+                True,
+                WHITE
+            )
+        else:
+            title = self.title_font.render(
+                "Time's Up!",
+                True,
+                WHITE
+            )
+
+            result_text = self.result_font.render(
+                "Maze not solved",
+                True,
+                WHITE
+            )
+
+        instruction = self.font.render(
+            "Press Enter, Space, or Escape to exit",
+            True,
+            WHITE
+        )
+
+        title_rect = title.get_rect(
+            center=(self.width // 2, self.height // 2 - 70)
+        )
+
+        result_rect = result_text.get_rect(
+            center=(self.width // 2, self.height // 2)
+        )
+
+        instruction_rect = instruction.get_rect(
+            center=(self.width // 2, self.height // 2 + 70)
+        )
+
+        screen.blit(title, title_rect)
+        screen.blit(result_text, result_rect)
+        screen.blit(instruction, instruction_rect)
